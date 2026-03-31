@@ -637,12 +637,10 @@ if device == '아이패드':
         최소마진_매입상한 = int(sell_price * 0.95)
         최종매입가 = min(기본매입가, 최소마진_매입상한)
 
-        # 수리비만 입력받음
+        # 부대비용 (사용자 입력 + 배송비 고정)
+        운영비_m = st.number_input("운영비 (원)", min_value=0, value=30000, step=5000, key='운영비_m')
         repair_cost_m = st.number_input("수리비 (원)", min_value=0, value=0, step=10000, key='repair_cost_m')
-
-        # 운영비 = 판매가의 10% 자동 계산 / 배송비 = 8,000원 고정
-        운영비_m = int(sell_price * 0.10)
-        shipping_cost_m = 8000
+        shipping_cost_m = 8000  # 배송비 고정
 
         # 총 비용 = 매입가 + 운영비 + 수리비 + 배송비
         total_cost = 최종매입가 + 운영비_m + repair_cost_m + shipping_cost_m
@@ -663,7 +661,7 @@ if device == '아이패드':
         st.markdown("📋 **비용 상세**")
         cost_df = pd.DataFrame({
             '항목': ['매입가', f'매입 차감 ({scenario_discount*100:.0f}%)',
-                    '운영비 (판매가의 10%)', '수리비', '배송비 (고정)', '총 비용',
+                    '운영비', '수리비', '배송비 (고정 8,000원)', '총 비용',
                     '판매 예상가', '마진'],
             '금액': [f"{최종매입가:,}원", f"-{int(sell_price * scenario_discount):,}원",
                     f"{운영비_m:,}원",
@@ -693,7 +691,7 @@ if device == '아이패드':
         })
         st.table(inv_df)
 
-        st.caption(f"매입 전략: {scenario_choice} | 매입 차감 {scenario_discount*100:.0f}% | 운영비 10% | 최소 마진 5% 보장")
+        st.caption(f"매입 전략: {scenario_choice} | 매입 차감 {scenario_discount*100:.0f}% | 최소 마진 5% 보장")
 
 elif device == '아이폰':
     pass  # 아이폰 탭은 아래에서 처리
