@@ -841,9 +841,9 @@ elif device == "맥북":
         return max(adj, 0.0)
 
     SCENARIOS = {
-        "보수": {"base_sale_premium": 0.05, "op_cost_rate": 0.10, "target_margin_rate": 0.12, "base_safety_margin": 0.05},
-        "표준": {"base_sale_premium": 0.07, "op_cost_rate": 0.10, "target_margin_rate": 0.10, "base_safety_margin": 0.03},
-        "공격": {"base_sale_premium": 0.10, "op_cost_rate": 0.09, "target_margin_rate": 0.08, "base_safety_margin": 0.02}
+        "보수": {"base_sale_premium": 0.03, "op_cost_rate": 0.10, "target_margin_rate": 0.10, "base_safety_margin": 0.05},
+        "표준": {"base_sale_premium": 0.05, "op_cost_rate": 0.10, "target_margin_rate": 0.07, "base_safety_margin": 0.03},
+        "공격": {"base_sale_premium": 0.07, "op_cost_rate": 0.09, "target_margin_rate": 0.05, "base_safety_margin": 0.02}
     }
 
     def calculate_purchase_offer(row_dict, scenario_name="표준", repair_cost=0):
