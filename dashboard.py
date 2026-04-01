@@ -1489,15 +1489,57 @@ if device == '아이폰':
 
             def predict_iphone(m_offset=0, bat=90, crack=0, burn=0, dent=0, scratch=0, unoff=0, apc=0, brand_new=0, simple_open=0):
                 f_m = months_old_now + m_offset
-                inp = pd.DataFrame([[
+
+                # [1] 기본 예측 (Raw Prediction)
+                actual_input = pd.DataFrame([[
                     float(launch_price), float(f_m), storage_num, is_high_end, current_intensity,
                     brand_new, simple_open, crack, burn, dent, scratch, unoff, apc
                 ]], columns=iphone_features)
-                pred_val = int(np.expm1(xgb_model.predict(inp)[0]))
-                # 안전장치: 미래 가격이 현재 가격보다 높을 수 없음
+
+                # 완전 미개봉일 때 모든 감가 변수를 강제로 0 처리
+                if brand_new:
+                    actual_input.loc[0, ['has_crack', 'has_burn_in', 'has_dent', 'has_scratch', 'is_unofficial', 'usage_intensity']] = 0
+
+                raw_pred = int(np.expm1(xgb_model.predict(actual_input)[0]))
+
+                # [2] 기준점 계산 (역전 방지용 가이드라인)
+                base_input = actual_input.copy()
+                base_input.loc[0, ['is_brand_new', 'is_simple_open', 'has_crack', 'has_burn_in', 'has_dent', 'has_scratch', 'is_unofficial', 'has_applecare', 'usage_intensity']] = 0
+                base_used_price = int(np.expm1(xgb_model.predict(base_input)[0]))
+
+                # [3] 강제 보정 로직
+                final_pred = raw_pred
+
+                # 배터리 & 결함 (단순개봉/중고 공통)
+                if not brand_new:
+                    if bat < 100:
+                        bat_ceiling = int(base_used_price * (1.0 - (100 - bat) * 0.006))
+                        final_pred = min(final_pred, bat_ceiling)
+                    active_defects = sum([crack, burn, dent, scratch])
+                    if active_defects > 0:
+                        defect_ceiling = int(final_pred * (1.0 - (active_defects * 0.08)))
+                        final_pred = min(final_pred, defect_ceiling)
+                    if unoff:
+                        final_pred = min(final_pred, int(final_pred * 0.85))
+
+                # 애플케어 프리미엄
+                if apc:
+                    apc_premium = 120000
+                    final_pred = max(final_pred, raw_pred, base_used_price + apc_premium)
+
+                # 상태별 위계 강제 (미개봉 > 단순개봉 > 중고)
+                if brand_new:
+                    final_pred = max(final_pred, int(base_used_price * 1.15))
+                elif simple_open:
+                    final_pred = max(final_pred, int(base_used_price * 1.05))
+                    brand_new_limit = int(base_used_price * 1.15)
+                    final_pred = min(final_pred, brand_new_limit - 30000)
+
+                # [4] 기간별 감가 및 최종 반환
                 if m_offset > 0:
-                    return min(pred_val, predict_iphone(0, bat, crack, burn, dent, scratch, unoff, apc, brand_new, simple_open))
-                return pred_val
+                    return min(final_pred, predict_iphone(0, bat, crack, burn, dent, scratch, unoff, apc, brand_new, simple_open) - (m_offset * 15000))
+
+                return int(final_pred)
 
             current_p = predict_iphone(
                 bat=iphone_battery,
@@ -1532,23 +1574,26 @@ if device == '아이폰':
             # === 섹션 2: 마진 시뮬레이션 ===
             if show_iphone_margin:
                 st.markdown("---")
-                st.subheader("📈 2. 매입 마진 시뮬레이션")
+                st.subheader("📈 2. 실시간 시세 및 매입가 제안")
                 st.caption("전략별 추천 매입가 및 실질 순이익 산출")
 
                 # 전략 선택 및 추천 매입가 계산
-                ip_strategy = st.radio("목표 전략 선택", ["공격적", "적정", "보수적"], horizontal=True, index=1, key='ip_strategy')
-                margin_map = {"공격적": 0.10, "적정": 0.16, "보수적": 0.23}
-                f_margin = margin_map[ip_strategy] + (iphone_mape / 200)
-                suggested_buy = int(current_p * (1 - f_margin))
+                ip_strategy = st.radio("목표 마진 전략", ["(공격적)", "(표준)", "(보수적)"], horizontal=True, index=1, key='ip_strategy')
+                m_base = {"(공격적)": 0.10, "(표준)": 0.16, "(보수적)": 0.23}
+                f_margin_rate = m_base[ip_strategy] + (iphone_mape / 200)
+                suggested_buy = int(current_p * (1 - f_margin_rate))
 
-                c1, c2 = st.columns(2)
-                c1.metric("현재 예측 시세", f"{current_p:,.0f}원")
-                c2.metric("추천 매입가", f"{suggested_buy:,.0f}원", delta=f"목표마진 {f_margin*100:.1f}%")
+                res_c1, res_c2 = st.columns(2)
+                res_c1.metric("현재 예상 시세", f"{current_p:,.0f}원")
+                res_c2.metric("추천 매입가", f"{suggested_buy:,.0f}원", delta=f"목표마진 {f_margin_rate*100:.1f}%")
 
                 st.divider()
 
+                # 재고 보유 기간별 감가 시뮬레이션
+                st.subheader("📉 재고 보유 기간별 감가 시뮬레이션")
+
                 # 비용 수기 입력
-                st.write("**💰 비용 수기 입력**")
+                st.write("💰 **비용 수기 입력**")
                 c_cost1, c_cost2, c_cost3 = st.columns(3)
                 with c_cost1:
                     input_repair_cost = st.number_input("수리비 (원)", value=0, step=1000, key='ip_repair')
@@ -1557,28 +1602,26 @@ if device == '아이폰':
                 with c_cost3:
                     shipping_cost = 5000
                     st.write("🚚 고정 배송비")
-                    st.write(f"**{shipping_cost:,}원**")
+                    st.write(f"### {shipping_cost:,}원")
 
                 total_additional_cost = input_repair_cost + input_operating_cost + shipping_cost
                 net_profit = (current_p - suggested_buy) - total_additional_cost
                 st.write(f"#### 현재 기준 예상 순이익: :blue[{net_profit:,.0f}원]")
 
-                st.divider()
-
-                # 재고 보유 기간별 감가 시뮬레이션
-                st.subheader("📉 재고 보유 기간별 감가 시뮬레이션")
+                # 감가 데이터 생성
                 periods = [0, 1, 3, 6, 12]
                 period_labels = ["즉시 판매", "1개월 뒤", "3개월 뒤", "6개월 뒤", "12개월 뒤"]
                 dep_data = []
-                for m, lbl in zip(periods, period_labels):
+                for m in periods:
                     p_val = predict_iphone(
                         m_offset=m, bat=iphone_battery,
                         crack=int(in_crack), burn=int(in_burn), dent=int(in_dent), scratch=int(in_scratch),
                         unoff=int(in_unoff), apc=int(in_apc),
                         brand_new=in_brand_new, simple_open=in_simple_open
                     )
+                    label = "즉시 판매" if m == 0 else f"{m}개월 뒤"
                     current_net = (p_val - suggested_buy) - total_additional_cost
-                    dep_data.append({"기간": lbl, "예상 시세": p_val, "마진": current_net})
+                    dep_data.append({"기간": label, "예상 시세": p_val, "남는 마진": current_net})
 
                 dep_margin_df = pd.DataFrame(dep_data)
                 dep_margin_df['기간'] = pd.Categorical(dep_margin_df['기간'], categories=period_labels, ordered=True)
